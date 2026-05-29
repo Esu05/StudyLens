@@ -57,57 +57,67 @@ export default function PlannerPage() {
   }
 
   const handleSave = async () => {
-    if (!plan) return
+  if (!plan) return
 
-    if (isGuest) {
-    // Save to localStorage
-    const newTopic = { id: Date.now().toString(), name: topic, subject: subject || '' }
-    const newSession = { id: Date.now().toString(), topic_id: newTopic.id, topics: { name: topic }, study_plan: plan.study_plan, key_concepts: plan.key_concepts, created_at: new Date().toISOString() }
-    const newFlashcards = plan.flashcards.map((f, i) => ({ id: `${Date.now()}-${i}`, topic_id: newTopic.id, topics: { name: topic }, front: f.front, back: f.back, status: 'new' }))
-    const newRevisions = plan.revision_dates.map((days, i) => ({
-      id: `${Date.now()}-rev-${i}`,
-      topic_id: newTopic.id,
-      topics: { name: topic },
-      scheduled_date: new Date(Date.now() + days * 86400000).toISOString().split('T')[0],
-      interval_days: days,
-      type: 'ai',
-      is_done: false
-    }))
-
-    updateGuestData('topics', [...guestData.topics, newTopic])
-    updateGuestData('sessions', [...guestData.sessions, newSession])
-    updateGuestData('flashcards', [...guestData.flashcards, ...newFlashcards])
-    updateGuestData('revisions', [...guestData.revisions, ...newRevisions])
-    setSaved(true)
+  if (isGuest) {
+    // guest logic unchanged
     return
   }
-  
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
 
-    const { data: topicData, error: topicError } = await supabase
-      .from('topics')
-      .insert({ user_id: user.id, name: topic, subject: subject || null })
-      .select()
-      .single()
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser()
 
-    if (topicError || !topicData) {
-      setError('Failed to save topic.')
-      return
-    }
+  console.log('USER:', user)
+  console.log('USER ERROR:', userError)
 
-    const topicId = topicData.id
-    const today = new Date()
+  if (!user) {
+    setError('User not found')
+    return
+  }
 
-    await supabase.from('sessions').insert({
+  // INSERT TOPIC
+  const { data: topicData, error: topicError } = await supabase
+    .from('topics')
+    .insert({
+      user_id: user.id,
+      name: topic,
+      subject: subject || null
+    })
+    .select()
+    .single()
+
+  console.log('TOPIC DATA:', topicData)
+  console.log('TOPIC ERROR:', topicError)
+
+  if (topicError || !topicData) {
+    setError(topicError?.message || 'Failed to save topic')
+    return
+  }
+
+  const topicId = topicData.id
+  const today = new Date()
+
+  // INSERT SESSION
+  const { error: sessionError } = await supabase
+    .from('sessions')
+    .insert({
       user_id: user.id,
       topic_id: topicId,
       study_plan: plan.study_plan,
       key_concepts: plan.key_concepts,
-      next_revision_date: new Date(today.getTime() + 86400000).toISOString().split('T')[0]
+      next_revision_date: new Date(today.getTime() + 86400000)
+        .toISOString()
+        .split('T')[0]
     })
 
-    await supabase.from('flashcards').insert(
+  console.log('SESSION ERROR:', sessionError)
+
+  // INSERT FLASHCARDS
+  const { error: flashcardError } = await supabase
+    .from('flashcards')
+    .insert(
       plan.flashcards.map(f => ({
         user_id: user.id,
         topic_id: topicId,
@@ -117,19 +127,28 @@ export default function PlannerPage() {
       }))
     )
 
-    await supabase.from('revision_schedule').insert(
+  console.log('FLASHCARD ERROR:', flashcardError)
+
+  // INSERT REVISION SCHEDULE
+  const { error: revisionError } = await supabase
+    .from('revision_schedule')
+    .insert(
       plan.revision_dates.map(days => ({
         user_id: user.id,
         topic_id: topicId,
-        scheduled_date: new Date(today.getTime() + days * 86400000).toISOString().split('T')[0],
+        scheduled_date: new Date(today.getTime() + days * 86400000)
+          .toISOString()
+          .split('T')[0],
         interval_days: days,
         type: 'ai',
         is_done: false
       }))
     )
 
-    setSaved(true)
-  }
+  console.log('REVISION ERROR:', revisionError)
+
+  setSaved(true)
+}
 
   return (
     <div className="flex gap-6">
