@@ -38,21 +38,6 @@ export default function LoginPage() {
     return
   }
 
-  // wait for session to persist
-  await new Promise(resolve => setTimeout(resolve, 1000))
-
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
-
-  console.log('SESSION AFTER LOGIN:', session)
-
-  if (!session) {
-    setError('Session failed to persist. Try again.')
-    setLoading(false)
-    return
-  }
-
   setGuestMode(false)
   router.push('/dashboard')
 }

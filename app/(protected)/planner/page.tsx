@@ -25,13 +25,12 @@ export default function PlannerPage() {
   const [topic, setTopic] = useState('')
   const [subject, setSubject] = useState('')
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [plan, setPlan] = useState<StudyPlan | null>(null)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [flipped, setFlipped] = useState<number | null>(null)
   const { isGuest, guestData, updateGuestData } = useGuest()
-
-  console.log('isGuest:', isGuest, 'guestData topics:', guestData.topics.length)
 
   const handleGenerate = async () => {
     if (!topic.trim()) return
@@ -57,67 +56,70 @@ export default function PlannerPage() {
   }
 
   const handleSave = async () => {
-  if (!plan) return
+    if (!plan) return
 
-  if (isGuest) {
-    // guest logic unchanged
-    return
-  }
+    if (isGuest) {
+      const newTopic = { id: Date.now().toString(), name: topic, subject: subject || '' }
+      const newSession = { id: Date.now().toString(), topic_id: newTopic.id, topics: { name: topic }, study_plan: plan.study_plan, key_concepts: plan.key_concepts, created_at: new Date().toISOString() }
+      const newFlashcards = plan.flashcards.map((f, i) => ({ id: `${Date.now()}-${i}`, topic_id: newTopic.id, topics: { name: topic }, front: f.front, back: f.back, status: 'new' }))
+      const newRevisions = plan.revision_dates.map((days, i) => ({
+        id: `${Date.now()}-rev-${i}`,
+        topic_id: newTopic.id,
+        topics: { name: topic },
+        scheduled_date: new Date(Date.now() + days * 86400000).toISOString().split('T')[0],
+        interval_days: days,
+        type: 'ai',
+        is_done: false
+      }))
 
-  const {
-    data: { user },
-    error: userError
-  } = await supabase.auth.getUser()
+      updateGuestData('topics', [...guestData.topics, newTopic])
+      updateGuestData('sessions', [...guestData.sessions, newSession])
+      updateGuestData('flashcards', [...guestData.flashcards, ...newFlashcards])
+      updateGuestData('revisions', [...guestData.revisions, ...newRevisions])
+      setSaved(true)
+      return
+    }
 
-  console.log('USER:', user)
-  console.log('USER ERROR:', userError)
+    setSaving(true)
+    setError('')
 
-  if (!user) {
-    setError('User not found')
-    return
-  }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setError('User not found. Please log in again.')
+      setSaving(false)
+      return
+    }
 
-  // INSERT TOPIC
-  const { data: topicData, error: topicError } = await supabase
-    .from('topics')
-    .insert({
-      user_id: user.id,
-      name: topic,
-      subject: subject || null
-    })
-    .select()
-    .single()
+    const { data: topicData, error: topicError } = await supabase
+      .from('topics')
+      .insert({ user_id: user.id, name: topic, subject: subject || null })
+      .select()
+      .single()
 
-  console.log('TOPIC DATA:', topicData)
-  console.log('TOPIC ERROR:', topicError)
+    if (topicError || !topicData) {
+      setError(topicError?.message || 'Failed to save topic.')
+      setSaving(false)
+      return
+    }
 
-  if (topicError || !topicData) {
-    setError(topicError?.message || 'Failed to save topic')
-    return
-  }
+    const topicId = topicData.id
+    const today = new Date()
 
-  const topicId = topicData.id
-  const today = new Date()
-
-  // INSERT SESSION
-  const { error: sessionError } = await supabase
-    .from('sessions')
-    .insert({
+    const { error: sessionError } = await supabase.from('sessions').insert({
       user_id: user.id,
       topic_id: topicId,
       study_plan: plan.study_plan,
       key_concepts: plan.key_concepts,
-      next_revision_date: new Date(today.getTime() + 86400000)
-        .toISOString()
-        .split('T')[0]
+      next_revision_date: new Date(today.getTime() + 86400000).toISOString().split('T')[0]
     })
 
-  console.log('SESSION ERROR:', sessionError)
+    if (sessionError) {
+      setError(sessionError.message)
+      setSaving(false)
+      return
+    }
 
-  // INSERT FLASHCARDS
-  const { error: flashcardError } = await supabase
-    .from('flashcards')
-    .insert(
+    const { error: flashcardError } = await supabase.from('flashcards').insert(
       plan.flashcards.map(f => ({
         user_id: user.id,
         topic_id: topicId,
@@ -127,28 +129,32 @@ export default function PlannerPage() {
       }))
     )
 
-  console.log('FLASHCARD ERROR:', flashcardError)
+    if (flashcardError) {
+      setError(flashcardError.message)
+      setSaving(false)
+      return
+    }
 
-  // INSERT REVISION SCHEDULE
-  const { error: revisionError } = await supabase
-    .from('revision_schedule')
-    .insert(
+    const { error: revisionError } = await supabase.from('revision_schedule').insert(
       plan.revision_dates.map(days => ({
         user_id: user.id,
         topic_id: topicId,
-        scheduled_date: new Date(today.getTime() + days * 86400000)
-          .toISOString()
-          .split('T')[0],
+        scheduled_date: new Date(today.getTime() + days * 86400000).toISOString().split('T')[0],
         interval_days: days,
         type: 'ai',
         is_done: false
       }))
     )
 
-  console.log('REVISION ERROR:', revisionError)
+    if (revisionError) {
+      setError(revisionError.message)
+      setSaving(false)
+      return
+    }
 
-  setSaved(true)
-}
+    setSaving(false)
+    setSaved(true)
+  }
 
   return (
     <div className="flex gap-6">
@@ -275,9 +281,10 @@ export default function PlannerPage() {
             {!saved ? (
               <button
                 onClick={handleSave}
-                className="w-full py-3.5 bg-[#1c1a18] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+                disabled={saving}
+                className="w-full py-3.5 bg-[#1c1a18] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-60 cursor-pointer"
               >
-                Save to my study plan →
+                {saving ? 'Saving...' : 'Save to my study plan →'}
               </button>
             ) : (
               <div
