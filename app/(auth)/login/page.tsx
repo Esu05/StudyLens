@@ -21,17 +21,41 @@ export default function LoginPage() {
 }
 
   const handleLogin = async () => {
-    setLoading(true)
-    setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      setGuestMode(false)
-      router.push('/dashboard')
-    }
+  setLoading(true)
+  setError('')
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  })
+
+  console.log('LOGIN DATA:', data)
+  console.log('LOGIN ERROR:', error)
+
+  if (error) {
+    setError(error.message)
+    setLoading(false)
+    return
   }
+
+  // wait for session to persist
+  await new Promise(resolve => setTimeout(resolve, 1000))
+
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+
+  console.log('SESSION AFTER LOGIN:', session)
+
+  if (!session) {
+    setError('Session failed to persist. Try again.')
+    setLoading(false)
+    return
+  }
+
+  setGuestMode(false)
+  router.push('/dashboard')
+}
 
   return (
     <div className="min-h-screen bg-[#f5f0e8] flex items-center justify-center font-sans">
@@ -52,6 +76,8 @@ export default function LoginPage() {
             Email
           </label>
           <input
+            id="email"
+            name="email"
             type="email"
             placeholder="you@example.com"
             value={email}
@@ -65,6 +91,8 @@ export default function LoginPage() {
             Password
           </label>
           <input
+            id="password"
+            name="password"
             type="password"
             placeholder="••••••••"
             value={password}

@@ -17,21 +17,45 @@ export default function SignupPage() {
   const { setGuestMode } = useGuest()
 
   const handleSignup = async () => {
-    setLoading(true)
-    setError('')
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: name } }
-    })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      setGuestMode(false)
-      router.push('/dashboard')
+  setLoading(true)
+  setError('')
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: name
+      },
+      emailRedirectTo: 'https://study-lens-esu05s-projects.vercel.app/dashboard'
     }
+  })
+
+  console.log('SIGNUP DATA:', data)
+  console.log('SIGNUP ERROR:', error)
+
+  if (error) {
+    setError(error.message)
+    setLoading(false)
+    return
   }
+
+  // IMPORTANT
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+
+  console.log('SESSION:', session)
+
+  if (!session) {
+    setError('Please check your email and verify your account.')
+    setLoading(false)
+    return
+  }
+
+  setGuestMode(false)
+  router.push('/dashboard')
+}
 
   return (
     <div className="min-h-screen bg-[#f5f0e8] flex items-center justify-center font-sans">
@@ -53,7 +77,7 @@ export default function SignupPage() {
           </label>
           <input
             type="text"
-            placeholder="Aditi Kumari"
+            placeholder="Peter Parker"
             value={name}
             onChange={e => setName(e.target.value)}
             className="w-full px-4 py-3 rounded-xl border border-[#e8e2d8] text-sm text-[#1c1a18] outline-none focus:border-[#1c1a18] transition-colors"
@@ -65,6 +89,8 @@ export default function SignupPage() {
             Email
           </label>
           <input
+            id="email"
+            name="email"
             type="email"
             placeholder="you@example.com"
             value={email}
@@ -78,6 +104,8 @@ export default function SignupPage() {
             Password
           </label>
           <input
+            id = "password"
+            name = "password"
             type="password"
             placeholder="••••••••"
             value={password}
